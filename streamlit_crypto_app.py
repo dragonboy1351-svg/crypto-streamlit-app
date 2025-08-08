@@ -10,7 +10,7 @@ import datetime
 # -----------------------------
 # HARDCODED API KEYS
 # -----------------------------
-CRYPTO_API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a "  # replace with your actual CryptoCompare key
+CRYPTO_API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a"
 GEMINI_API_KEY = "AIzaSyCFWIl2SrnRo7T25G4vp4O-CPy-O7UpuzY"
 
 # -----------------------------
@@ -47,15 +47,15 @@ def get_sentiment_scores(symbol: str, limit: int = 30) -> pd.DataFrame:
     rows = []
     for article in articles[:limit]:
         score = analyzer.polarity_scores(article["title"])["compound"]
-        date = datetime.datetime.utcfromtimestamp(article["published_on"]).date()
+        date = datetime.datetime.utcfromtimestamp(article["published_on"])
         rows.append({"date": date, "symbol": symbol, "sentiment": score})
     return pd.DataFrame(rows)
 
-def optimize_portfolio(returns: pd.Series, cov_matrix: pd.DataFrame, sentiment_score: float):
+def optimise_portfolio(returns: pd.Series, cov_matrix: pd.DataFrame, sentiment_score: float):
     n = len(returns)
     w = cp.Variable(n)
-    risk_aversion = max(0.01, 1 - sentiment_score)  # Lower risk aversion with good sentiment
-    objective = cp.Maximize(returns.values @ w - risk_aversion * cp.quad_form(w, cov_matrix.values))
+    risk_aversion = max(0.01, 1 - sentiment_score)
+    objective = cp.Maximise(returns.values @ w - risk_aversion * cp.quad_form(w, cov_matrix.values))
     constraints = [cp.sum(w) == 1, w >= 0, w <= 0.5]
     prob = cp.Problem(objective, constraints)
     prob.solve()
@@ -88,6 +88,10 @@ for sym in selected_symbols:
 price_df = pd.concat(price_data_all)
 sentiment_df = pd.concat(sentiment_data_all)
 
+# Convert both 'date' columns to datetime64 for proper merging
+price_df["date"] = pd.to_datetime(price_df["date"])
+sentiment_df["date"] = pd.to_datetime(sentiment_df["date"])
+
 # Merge price and sentiment data
 merged = pd.merge(price_df, sentiment_df, on=["date", "symbol"], how="left")
 merged["sentiment"].fillna(0, inplace=True)
@@ -105,22 +109,22 @@ for sym in selected_symbols:
     gemini_text = get_gemini_summary(sym, avg_s)
     st.markdown(f"**{sym}**: {gemini_text}")
 
-# Step 5: Portfolio Optimization
+# Step 5: Portfolio Optimisation
 st.subheader("📊 Portfolio Allocation")
 
 # Pivot prices for return calculation
 pivot = price_df.pivot(index="date", columns="symbol", values="close")
 returns = pivot.pct_change().dropna()
 
-# Calculate mean returns & cov matrix
+# Calculate mean returns & covariance matrix
 mean_returns = returns.mean()
 cov_matrix = returns.cov()
 
-# Get average market sentiment
+# Get average sentiment across selected coins
 market_sentiment = np.mean(list(sentiment_summary.values()))
 
-# Run optimization
-weights = optimize_portfolio(mean_returns, cov_matrix, market_sentiment)
+# Run optimisation
+weights = optimise_portfolio(mean_returns, cov_matrix, market_sentiment)
 
 # Show weights
 weight_df = pd.DataFrame({
@@ -132,7 +136,5 @@ st.dataframe(weight_df, use_container_width=True)
 # Optional chart
 st.bar_chart(weight_df.set_index("Symbol"))
 
-# -----------------------------
-# Done
-# -----------------------------
+# Footer
 st.caption("Built with sentiment + Gemini-powered insights 🔮")
