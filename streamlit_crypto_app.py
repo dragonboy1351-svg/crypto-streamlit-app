@@ -83,7 +83,7 @@ price_data["momentum"] = price_data.groupby("symbol")["close"].pct_change(7)
 
 # Join with sentiment
 price_data["date"] = price_data["time"].dt.date
-merged = pd.merge(price_data, sentiment_data, on=["date", "symbol"], how="left')
+merged = pd.merge(price_data, sentiment_data, on=["date", "symbol"], how="left")
 
 # -------------------------------
 # --- Dashboard
@@ -130,3 +130,4 @@ try:
             st.write(response.text)
 except Exception as e:
     st.error(f"❌ Gemini API Error: {e}")
+
