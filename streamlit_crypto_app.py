@@ -10,12 +10,12 @@ import google.generativeai as genai
 # -------------------------------
 # --- Hardcoded API Key (Crypto)
 # -------------------------------
-CRYPTO_API_KEY = "your_crypto_compare_api_key"  # replace this with your actual key
+CRYPTO_API_KEY = "AIzaSyCpEmyTYITvlk_nIqUlmUKaSUGNNeLRSXc"  # replace this with your actual key
 
 # -------------------------------
 # --- Gemini API Key (Hardcoded)
 # -------------------------------
-GEMINI_API_KEY = "AIzaSyD8dbzMGmUYkuK2nXSO8zJsMyho1t6onfk"
+GEMINI_API_KEY = "AIzaSyCpEmyTYITvlk_nIqUlmUKaSUGNNeLRSXc"
 
 # -------------------------------
 # --- Streamlit Layout
@@ -130,3 +130,4 @@ try:
             st.write(response.text)
 except Exception as e:
     st.error(f"❌ Gemini API Error: {e}")
+
