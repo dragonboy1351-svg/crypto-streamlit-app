@@ -4,137 +4,71 @@ import numpy as np
 import requests
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import google.generativeai as genai
-import cvxpy as cp
-import datetime
 
-# -----------------------------
-# HARDCODED API KEYS
-# -----------------------------
+# --- API Keys ---
 CRYPTO_API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a"
 GEMINI_API_KEY = "AIzaSyCFWIl2SrnRo7T25G4vp4O-CPy-O7UpuzY"
 
-# -----------------------------
-# Configure Gemini
-# -----------------------------
+# --- Configure Gemini ---
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel("gemini-pro")
 
-# -----------------------------
-# App Layout
-# -----------------------------
-st.set_page_config(page_title="Crypto Portfolio Optimisation", layout="wide")
-st.title("📊 Crypto Portfolio Optimisation")
+# --- App Layout ---
+st.set_page_config(page_title="Simple Crypto Dashboard", layout="wide")
+st.title("📊 Simple Crypto Dashboard")
 
-# -----------------------------
-# Functions
-# -----------------------------
-
-def get_price_data(symbol: str, limit: int = 100) -> pd.DataFrame:
+# --- Get Price Data ---
+def get_price_data(symbol: str, limit: int = 30) -> pd.DataFrame:
     url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={symbol}&tsym=USD&limit={limit}&api_key={CRYPTO_API_KEY}"
     res = requests.get(url)
     data = res.json().get("Data", {}).get("Data", [])
     df = pd.DataFrame(data)
     df["time"] = pd.to_datetime(df["time"], unit="s")
-    df.rename(columns={"time": "date"}, inplace=True)
-    df["symbol"] = symbol
-    return df[["date", "symbol", "close"]]
+    df.rename(columns={"time": "date", "close": symbol}, inplace=True)
+    return df[["date", symbol]]
 
-def get_sentiment_scores(symbol: str, limit: int = 30) -> pd.DataFrame:
+# --- Get Sentiment ---
+def get_sentiment(symbol: str) -> float:
     url = f"https://min-api.cryptocompare.com/data/v2/news/?categories={symbol}&api_key={CRYPTO_API_KEY}"
     res = requests.get(url)
     articles = res.json().get("Data", [])
     analyzer = SentimentIntensityAnalyzer()
-    rows = []
-    for article in articles[:limit]:
-        score = analyzer.polarity_scores(article["title"])["compound"]
-        date = datetime.datetime.utcfromtimestamp(article["published_on"])
-        rows.append({"date": date, "symbol": symbol, "sentiment": score})
-    return pd.DataFrame(rows)
+    scores = [analyzer.polarity_scores(article["title"])['compound'] for article in articles[:10]]
+    return np.mean(scores) if scores else 0
 
-def optimise_portfolio(returns: pd.Series, cov_matrix: pd.DataFrame, sentiment_score: float):
-    n = len(returns)
-    w = cp.Variable(n)
-    risk_aversion = max(0.01, 1 - sentiment_score)
-    objective = cp.Maximise(returns.values @ w - risk_aversion * cp.quad_form(w, cov_matrix.values))
-    constraints = [cp.sum(w) == 1, w >= 0, w <= 0.5]
-    prob = cp.Problem(objective, constraints)
-    prob.solve()
-    return w.value
-
+# --- Gemini Chat Summary ---
 def get_gemini_summary(symbol: str, avg_sentiment: float):
-    prompt = f"The average sentiment for {symbol} is {avg_sentiment:.2f}. Explain this in simple terms and whether it's positive or negative sentiment."
+    prompt = f"The average sentiment for {symbol} is {avg_sentiment:.2f}. Explain this in simple terms and whether it's positive or negative."
     try:
         response = gemini_model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"Gemini error: {str(e)}"
 
-# -----------------------------
-# App Logic
-# -----------------------------
+# --- Sidebar ---
+st.sidebar.header("Select Coins")
+symbols = st.sidebar.multiselect("Cryptos", ["BTC", "ETH", "XRP", "LTC"], default=["BTC", "ETH"])
 
-# Step 1: User selection
-st.sidebar.header("Select Cryptocurrencies")
-selected_symbols = st.sidebar.multiselect("Pick coins", ["BTC", "ETH", "XRP", "LTC", "ADA"], default=["BTC", "ETH"])
+# --- Show Data ---
+all_prices = []
+sentiments = {}
 
-# Step 2: Load data
-price_data_all = []
-sentiment_data_all = []
+for symbol in symbols:
+    df = get_price_data(symbol)
+    all_prices.append(df.set_index("date"))
+    sentiments[symbol] = get_sentiment(symbol)
 
-for sym in selected_symbols:
-    price_data_all.append(get_price_data(sym))
-    sentiment_data_all.append(get_sentiment_scores(sym))
+if all_prices:
+    price_df = pd.concat(all_prices, axis=1)
+    st.subheader("📈 Price Chart")
+    st.line_chart(price_df)
 
-price_df = pd.concat(price_data_all)
-sentiment_df = pd.concat(sentiment_data_all)
+    st.subheader("🧠 Sentiment Scores")
+    st.write(pd.DataFrame.from_dict(sentiments, orient='index', columns=["Sentiment"]))
 
-# Convert both 'date' columns to datetime64 for proper merging
-price_df["date"] = pd.to_datetime(price_df["date"])
-sentiment_df["date"] = pd.to_datetime(sentiment_df["date"])
+    st.subheader("🔮 Gemini Summary")
+    for symbol in symbols:
+        st.markdown(f"**{symbol}**")
+        st.write(get_gemini_summary(symbol, sentiments[symbol]))
 
-# Merge price and sentiment data
-merged = pd.merge(price_df, sentiment_df, on=["date", "symbol"], how="left")
-merged["sentiment"].fillna(0, inplace=True)
-
-# Step 3: Show data
-st.subheader("📈 Market Data + Sentiment")
-st.dataframe(merged.tail(10), use_container_width=True)
-
-# Step 4: Compute average sentiment and show Gemini explanation
-sentiment_summary = merged.groupby("symbol")["sentiment"].mean().to_dict()
-
-st.subheader("🧠 Sentiment Interpretation (Gemini)")
-for sym in selected_symbols:
-    avg_s = sentiment_summary.get(sym, 0)
-    gemini_text = get_gemini_summary(sym, avg_s)
-    st.markdown(f"**{sym}**: {gemini_text}")
-
-# Step 5: Portfolio Optimisation
-st.subheader("📊 Portfolio Allocation")
-
-# Pivot prices for return calculation
-pivot = price_df.pivot(index="date", columns="symbol", values="close")
-returns = pivot.pct_change().dropna()
-
-# Calculate mean returns & covariance matrix
-mean_returns = returns.mean()
-cov_matrix = returns.cov()
-
-# Get average sentiment across selected coins
-market_sentiment = np.mean(list(sentiment_summary.values()))
-
-# Run optimisation
-weights = optimise_portfolio(mean_returns, cov_matrix, market_sentiment)
-
-# Show weights
-weight_df = pd.DataFrame({
-    "Symbol": mean_returns.index,
-    "Weight": np.round(weights, 4)
-})
-st.dataframe(weight_df, use_container_width=True)
-
-# Optional chart
-st.bar_chart(weight_df.set_index("Symbol"))
-
-# Footer
-st.caption("Built with sentiment + Gemini-powered insights 🔮")
+st.caption("Simplified crypto dashboard using CryptoCompare, VADER and Gemini API.")
