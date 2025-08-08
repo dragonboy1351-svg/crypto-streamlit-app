@@ -4,3 +4,4 @@ numpy
 requests
 vaderSentiment
 cvxpy
+google-generativeai
