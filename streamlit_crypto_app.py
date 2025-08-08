@@ -78,17 +78,19 @@ def add_sentiment_scores(df: pd.DataFrame) -> pd.DataFrame:
     df["sentiment_score"] = df["clean_title"].apply(lambda t: analyzer.polarity_scores(t)["compound"])
     return df
 
-# --- Streamlit Interface ---
+# --- Streamlit App Interface ---
 
 st.set_page_config(page_title="Crypto Dashboard", layout="wide")
 st.title("📊 Sentiment-Enhanced Crypto Analysis")
 
-api_key = st.text_input("🔑 Enter CryptoCompare API Key", type="password")
+# ✅ Hardcoded API key (use only for local or private deployment!)
+api_key = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a"
+
 symbol = st.selectbox("Choose Cryptocurrency Symbol", ["BTC", "ETH", "XRP", "LTC"])
 limit_days = st.slider("Number of Days for Price Data", 30, 2000, 365)
 news_limit = st.slider("Number of News Articles", 10, 200, 100)
 
-if st.button("Run Analysis") and api_key:
+if st.button("Run Analysis"):
     with st.spinner("Fetching price data..."):
         df_price = get_daily_price_data(symbol, api_key, limit=limit_days)
         if df_price.empty:
@@ -129,12 +131,4 @@ if st.button("Run Analysis") and api_key:
         st.download_button("⬇️ Download Price Data", df_price.to_csv(index=False), file_name="price_data.csv")
         st.download_button("⬇️ Download News Sentiment Data", df_news.to_csv(index=False), file_name="news_sentiment.csv")
 else:
-    st.info("Enter your API key and press 'Run Analysis'.")
-
-
-
-
-
-
-
-
+    st.info("Click 'Run Analysis' to fetch and analyze crypto data.")
