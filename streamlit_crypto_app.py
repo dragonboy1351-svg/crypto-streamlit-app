@@ -2,97 +2,131 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import datetime
+import altair as alt
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import google.generativeai as genai
 
-# ----------------------------
-# App Title
-# ----------------------------
-st.title("🔐 Crypto Portfolio Optimisation")
-st.markdown("### 📊 Sentiment-Enhanced Crypto Analysis Dashboard")
+# -------------------------------
+# --- Hardcoded API Key (Crypto)
+# -------------------------------
+CRYPTO_API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a "  # replace this with your actual key
 
-# ----------------------------
-# Config
-# ----------------------------
-API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a " 
-coins = ["BTC", "ETH", "XRP"]
-analyzer = SentimentIntensityAnalyzer()
+# -------------------------------
+# --- Gemini API Key (Hardcoded)
+# -------------------------------
+GEMINI_API_KEY = "AIzaSyD8dbzMGmUYkuK2nXSO8zJsMyho1t6onfk"
 
-# ----------------------------
-# Functions
-# ----------------------------
+# -------------------------------
+# --- Streamlit Layout
+# -------------------------------
+st.set_page_config(page_title="Crypto Portfolio Optimisation", layout="wide")
+st.title("📊 Crypto Portfolio Optimisation")
 
-def get_daily_price_data(symbol: str, api_key: str, limit: int = 90):
-    url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={symbol}&tsym=USD&limit={limit}&api_key={api_key}"
-    response = requests.get(url)
-    data = response.json()
-    if data["Response"] == "Success":
-        df = pd.DataFrame(data["Data"]["Data"])
+# -------------------------------
+# --- User Settings
+# -------------------------------
+coins = st.multiselect("Select cryptocurrencies", ["BTC", "ETH", "XRP"], default=["BTC", "ETH"])
+days = st.slider("How many days of data?", min_value=30, max_value=365, value=90)
+
+# -------------------------------
+# --- Helper Functions
+# -------------------------------
+def get_crypto_data(symbol):
+    url = f"https://min-api.cryptocompare.com/data/v2/histoday?fsym={symbol}&tsym=USD&limit={days}&api_key={CRYPTO_API_KEY}"
+    response = requests.get(url).json()
+    if response["Response"] == "Success":
+        df = pd.DataFrame(response["Data"]["Data"])
         df["time"] = pd.to_datetime(df["time"], unit="s")
-        df.set_index("time", inplace=True)
-        df = df[["close"]]
-        df.rename(columns={"close": symbol}, inplace=True)
-        return df
+        df["symbol"] = symbol
+        return df[["time", "close", "symbol"]]
     else:
         return pd.DataFrame()
 
-def get_sentiment_scores(coins, api_key):
-    url = f"https://min-api.cryptocompare.com/data/v2/news/?lang=EN&api_key={api_key}"
-    response = requests.get(url)
-    news_data = response.json()
-    sentiment_scores = {coin: [] for coin in coins}
+def get_sentiment_scores(coins):
+    url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&api_key=" + CRYPTO_API_KEY
+    response = requests.get(url).json()
+    analyzer = SentimentIntensityAnalyzer()
 
-    for article in news_data["Data"]:
-        title = article["title"]
-        score = analyzer.polarity_scores(title)["compound"]
+    sentiment_data = {coin: [] for coin in coins}
+    for article in response["Data"]:
+        title = article.get("title", "")
         for coin in coins:
-            if coin in article["categories"]:
-                sentiment_scores[coin].append(score)
+            if coin in title:
+                score = analyzer.polarity_scores(title)["compound"]
+                published = datetime.datetime.fromtimestamp(article["published_on"])
+                sentiment_data[coin].append((published.date(), score))
 
-    avg_scores = {coin: np.mean(scores) if scores else 0 for coin, scores in sentiment_scores.items()}
-    return avg_scores
+    sentiment_df = []
+    for coin, entries in sentiment_data.items():
+        if entries:
+            df = pd.DataFrame(entries, columns=["date", "sentiment"])
+            df = df.groupby("date").mean().reset_index()
+            df["symbol"] = coin
+            sentiment_df.append(df)
 
-# ----------------------------
-# Sidebar Settings
-# ----------------------------
-st.sidebar.header("Settings")
-limit = st.sidebar.slider("Days of historical data", 30, 120, 90)
+    if sentiment_df:
+        return pd.concat(sentiment_df)
+    else:
+        return pd.DataFrame()
 
-# ----------------------------
-# Load Price Data
-# ----------------------------
-dfs = [get_daily_price_data(coin, API_KEY, limit) for coin in coins]
-price_data = pd.concat(dfs, axis=1).dropna()
+# -------------------------------
+# --- Main App Logic
+# -------------------------------
+price_data = pd.concat([get_crypto_data(c) for c in coins])
+sentiment_data = get_sentiment_scores(coins)
 
-# ----------------------------
-# Main App
-# ----------------------------
-if not price_data.empty:
-    st.subheader("📈 Historical Prices (USD)")
-    st.line_chart(price_data)
+# Compute metrics
+price_data["return"] = price_data.groupby("symbol")["close"].pct_change()
+price_data["volatility"] = price_data.groupby("symbol")["return"].rolling(7).std().reset_index(level=0, drop=True)
+price_data["momentum"] = price_data.groupby("symbol")["close"].pct_change(7)
 
-    # Calculate Daily Returns
-    returns = price_data.pct_change().dropna()
-    st.subheader("📉 Daily Returns")
-    st.line_chart(returns)
+# Join with sentiment
+price_data["date"] = price_data["time"].dt.date
+merged = pd.merge(price_data, sentiment_data, on=["date", "symbol"], how="left')
 
-    # Volatility (Rolling Std Dev)
-    st.subheader("📊 Volatility (Rolling 7-Day Std Dev)")
-    volatility = returns.rolling(window=7).std()
-    st.line_chart(volatility)
+# -------------------------------
+# --- Dashboard
+# -------------------------------
+st.subheader("📈 Price Chart")
+line = alt.Chart(price_data).mark_line().encode(
+    x="time", y="close", color="symbol"
+).properties(width=700, height=400)
+st.altair_chart(line, use_container_width=True)
 
-    # Momentum (Rolling Return)
-    st.subheader("🚀 Momentum (Rolling 7-Day Return)")
-    momentum = price_data.pct_change(periods=7)
-    st.line_chart(momentum)
+st.subheader("📊 Volatility & Momentum (7-day)")
+metrics = price_data.groupby("symbol").agg({
+    "return": "mean",
+    "volatility": "mean",
+    "momentum": "mean"
+}).rename(columns={
+    "return": "Avg Daily Return",
+    "volatility": "7d Volatility",
+    "momentum": "7d Momentum"
+})
+st.dataframe(metrics.round(4))
 
-    # Sentiment Scores
-    st.subheader("🧠 Sentiment Scores from News Headlines")
-    sentiment_scores = get_sentiment_scores(coins, API_KEY)
-    st.write(sentiment_scores)
+if not sentiment_data.empty:
+    st.subheader("🧠 Average Sentiment Score")
+    avg_sentiment = sentiment_data.groupby("symbol")["sentiment"].mean().round(4)
+    st.write(avg_sentiment)
 
-    # Market-Wide Sentiment
-    avg_sentiment = np.mean(list(sentiment_scores.values()))
-    st.write(f"**Average Market Sentiment**: {avg_sentiment:.4f}")
+# -------------------------------
+# --- Gemini Integration
+# -------------------------------
+st.markdown("---")
+st.subheader("🔮 Ask Gemini About the Market")
 
-else:
-    st.error("❌ Failed to load crypto price data.")
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-pro")
+
+    prompt = st.text_area("Ask a question about crypto sentiment (e.g., 'Explain today's sentiment on BTC'):")
+
+    if st.button("Ask Gemini"):
+        with st.spinner("Gemini is thinking..."):
+            response = model.generate_content(prompt)
+            st.success("✅ Gemini's Response:")
+            st.write(response.text)
+except Exception as e:
+    st.error(f"❌ Gemini API Error: {e}")
