@@ -10,8 +10,8 @@ import datetime
 # -----------------------------
 # HARDCODED API KEYS
 # -----------------------------
-CRYPTO_API_KEY = "your_crypto_api_key_here"  # replace with your actual CryptoCompare key
-GEMINI_API_KEY = "AIzaSyD8dbzMGmUYkuK2nXSO8zJsMyho1t6onfk"
+CRYPTO_API_KEY = "ca28d0c8038e074b58ba188a33bdefad11bf7dbbfc739fe5942f8a3323ee075a "  # replace with your actual CryptoCompare key
+GEMINI_API_KEY = "AIzaSyCFWIl2SrnRo7T25G4vp4O-CPy-O7UpuzY"
 
 # -----------------------------
 # Configure Gemini
